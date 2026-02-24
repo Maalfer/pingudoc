@@ -288,6 +288,19 @@ export async function exportToPdf(options: ExportToPdfOptions): Promise<Blob> {
 		const html = buildHtml(options.title, bodyHtml, options.theme);
 		await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
+		// Ensure images are fully loaded before printing
+		await win.webContents.executeJavaScript(`(async () => {
+			const imgs = Array.from(document.images ?? []);
+			await Promise.all(imgs.map(img => {
+				if (img.complete) return Promise.resolve();
+				return new Promise(res => {
+					img.addEventListener('load', () => res(), { once: true });
+					img.addEventListener('error', () => res(), { once: true });
+				});
+			}));
+			await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+		})()`);
+
 		const pdfBuffer: Buffer = await win.webContents.printToPDF({
 			printBackground: true,
 		});
