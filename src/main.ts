@@ -13,7 +13,7 @@ import { convertToOdt } from './odt-converter';
 import { exportToPdf } from './pdf-exporter';
 import { saveAs } from 'file-saver';
 
-type ExportFormat = 'docx' | 'odt' | 'pdf';
+export type ExportFormat = 'docx' | 'odt' | 'pdf';
 
 export default class PinguDocPlugin extends Plugin {
 	settings: ExportPluginSettings;
@@ -125,7 +125,7 @@ export default class PinguDocPlugin extends Plugin {
 	/**
 	 * Export the currently active note.
 	 */
-	private async exportActiveNote(format: ExportFormat) {
+	async exportActiveNote(format: ExportFormat) {
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!activeView?.file) {
 			new Notice('No active note to export.');
