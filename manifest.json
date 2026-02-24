@@ -5,5 +5,5 @@
 	"minAppVersion": "0.15.0",
 	"description": "Export your Obsidian notes to Word (.docx), OpenDocument (.odt), and PDF (.pdf) formats.",
 	"author": "Mario Álvarez",
-	"isDesktopOnly": true
+	"isDesktopOnly": false
 }

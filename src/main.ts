@@ -5,7 +5,7 @@
  * formats, preserving images, headings, lists, tables, and all formatting.
  */
 
-import { Notice, Plugin, TFile, MarkdownView } from 'obsidian';
+import { Notice, Plugin, TFile, MarkdownView, Platform } from 'obsidian';
 import { DEFAULT_SETTINGS, ExportPluginSettings, ExportSettingTab } from './settings';
 import { parseMarkdown } from './parser';
 import { convertToDocx } from './converter';
@@ -17,6 +17,7 @@ export type ExportFormat = 'docx' | 'odt' | 'pdf';
 
 export default class PinguDocPlugin extends Plugin {
 	settings: ExportPluginSettings;
+	private readonly exportFolder = 'PinguDoc Exports';
 
 	async onload() {
 		await this.loadSettings();
@@ -181,7 +182,11 @@ export default class PinguDocPlugin extends Plugin {
 			}
 
 			// 6. Download the file
-			saveAs(blob, fileName);
+			if (Platform.isMobileApp) {
+				await this.saveBlobToVault(blob, `${title}.${format}`);
+			} else {
+				saveAs(blob, fileName);
+			}
 
 			loadingNotice.hide();
 			new Notice(`✅ Exported: ${fileName}`);
@@ -190,5 +195,46 @@ export default class PinguDocPlugin extends Plugin {
 			console.error('Note export error:', error);
 			new Notice(`❌ Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
 		}
+	}
+
+	private async ensureExportFolder(): Promise<void> {
+		const folder = this.app.vault.getAbstractFileByPath(this.exportFolder);
+		if (!folder) {
+			await this.app.vault.createFolder(this.exportFolder);
+		}
+	}
+
+	private async saveBlobToVault(blob: Blob, fileName: string): Promise<void> {
+		await this.ensureExportFolder();
+		const bytes = await blob.arrayBuffer();
+		let targetPath = `${this.exportFolder}/${fileName}`;
+
+		const existing = this.app.vault.getAbstractFileByPath(targetPath);
+		if (existing instanceof TFile) {
+			const base = fileName.replace(/\.[^/.]+$/, '');
+			const ext = fileName.split('.').pop() ?? '';
+			targetPath = `${this.exportFolder}/${base}-${Date.now()}.${ext}`;
+		}
+
+		const v = this.app.vault as unknown as {
+			createBinary?: (path: string, data: ArrayBuffer) => Promise<TFile>;
+			create?: (path: string, data: string) => Promise<TFile>;
+			modifyBinary?: (file: TFile, data: ArrayBuffer) => Promise<void>;
+		};
+
+		if (typeof v.createBinary === 'function') {
+			await v.createBinary(targetPath, bytes);
+		} else {
+			// Fallback: create empty file then modifyBinary
+			const created = typeof v.create === 'function'
+				? await v.create(targetPath, '')
+				: null;
+			if (!created || typeof v.modifyBinary !== 'function') {
+				throw new Error('Unable to write binary file to vault on this platform.');
+			}
+			await v.modifyBinary(created, bytes);
+		}
+
+		new Notice(`✅ Saved to vault: ${targetPath}`);
 	}
 }

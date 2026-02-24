@@ -28,6 +28,7 @@
 		"file-saver": "^2.0.5",
 		"html-to-docx": "^1.8.0",
 		"jszip": "^3.10.1",
-		"obsidian": "latest"
+		"obsidian": "latest",
+		"pdf-lib": "^1.17.1"
 	}
 }

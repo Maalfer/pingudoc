@@ -1,5 +1,6 @@
 import { App, Component, MarkdownRenderer } from 'obsidian';
 import { resolveImageFile } from './image-handler';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 export type PdfTheme = 'light' | 'dark';
 
@@ -11,10 +12,123 @@ export interface ExportToPdfOptions {
 	theme: PdfTheme;
 }
 
+function decodeBase64ToUint8Array(base64: string): Uint8Array {
+	return Uint8Array.from(Buffer.from(base64, 'base64'));
+}
+
+function wrapText(text: string, maxWidth: number, font: any, fontSize: number): string[] {
+	const words = text.replace(/\r\n/g, '\n').split(/(\s+)/);
+	const lines: string[] = [];
+	let current = '';
+
+	for (const w of words) {
+		const candidate = current + w;
+		const width = font.widthOfTextAtSize(candidate, fontSize);
+		if (width <= maxWidth || current.trim().length === 0) {
+			current = candidate;
+			continue;
+		}
+		lines.push(current.trimEnd());
+		current = w.trimStart();
+	}
+	if (current.trim().length) lines.push(current.trimEnd());
+	return lines;
+}
+
+async function exportToPdfOffline(app: App, tmpEl: HTMLElement, title: string, theme: PdfTheme): Promise<Blob> {
+	const pdf = await PDFDocument.create();
+	const font = await pdf.embedFont(StandardFonts.Helvetica);
+	const fontSize = 11;
+	const lineHeight = 14;
+	const margin = 36;
+
+	const isDark = theme === 'dark';
+	const bg = isDark ? rgb(0.12, 0.12, 0.12) : rgb(1, 1, 1);
+	const fg = isDark ? rgb(0.92, 0.92, 0.92) : rgb(0.07, 0.07, 0.07);
+
+	let page = pdf.addPage();
+	let { width, height } = page.getSize();
+	const maxWidth = width - margin * 2;
+	let y = height - margin;
+
+	const paintBackground = (p: any) => {
+		const size = p.getSize();
+		p.drawRectangle({ x: 0, y: 0, width: size.width, height: size.height, color: bg });
+	};
+	paintBackground(page);
+
+	const rawText = (tmpEl.textContent ?? '').trim();
+	const paragraphs = rawText.split(/\n\s*\n/g);
+
+	for (const para of paragraphs) {
+		const lines = wrapText(para, maxWidth, font, fontSize);
+		for (const line of lines) {
+			if (y < margin + lineHeight) {
+				page = pdf.addPage();
+				({ width, height } = page.getSize());
+				y = height - margin;
+				paintBackground(page);
+			}
+			page.drawText(line, { x: margin, y: y - fontSize, size: fontSize, font, color: fg });
+			y -= lineHeight;
+		}
+		y -= lineHeight;
+	}
+
+	// Best-effort: append embedded images (png/jpg) below the text
+	const imgs = Array.from(tmpEl.querySelectorAll('img'));
+	for (const img of imgs) {
+		const src = img.getAttribute('src') ?? '';
+		if (!src.startsWith('data:')) continue;
+		const match = src.match(/^data:([^;]+);base64,(.+)$/);
+		if (!match) continue;
+		const mime = match[1];
+		const b64 = match[2];
+		if (!b64) continue;
+
+		try {
+			const bytes = decodeBase64ToUint8Array(b64);
+			const embedded = mime === 'image/png'
+				? await pdf.embedPng(bytes)
+				: (mime === 'image/jpeg' ? await pdf.embedJpg(bytes) : null);
+			if (!embedded) continue;
+
+			const scale = Math.min(maxWidth / embedded.width, 1);
+			const drawW = embedded.width * scale;
+			const drawH = embedded.height * scale;
+
+			if (y < margin + drawH) {
+				page = pdf.addPage();
+				({ width, height } = page.getSize());
+				y = height - margin;
+				paintBackground(page);
+			}
+
+			page.drawImage(embedded, { x: margin, y: y - drawH, width: drawW, height: drawH });
+			y -= drawH + lineHeight;
+		} catch {
+			// ignore image errors
+		}
+	}
+
+	const bytes = await pdf.save();
+	return new Blob([bytes], { type: 'application/pdf' });
+}
+
 function getElectron(): any {
 	const w = window as unknown as { require?: (id: string) => any };
 	if (typeof w.require === 'function') return w.require('electron');
 	throw new Error('PDF export is only supported on Obsidian Desktop.');
+}
+
+function tryGetElectron(): any | null {
+	try {
+		const w = window as unknown as { require?: (id: string) => any };
+		if (typeof w.require === 'function') return w.require('electron');
+		return null;
+	} catch {
+		return null;
+	}
 }
 
 function buildHtml(title: string, bodyHtml: string, theme: PdfTheme): string {
@@ -146,10 +260,16 @@ export async function exportToPdf(options: ExportToPdfOptions): Promise<Blob> {
 	const tmpEl = document.createElement('div');
 	await MarkdownRenderer.renderMarkdown(options.markdown, tmpEl, options.sourcePath, component);
 	await embedImagesAsDataUrls(options.app, tmpEl, options.sourcePath);
+	const electron = tryGetElectron();
+	if (!electron) {
+		const blob = await exportToPdfOffline(options.app, tmpEl, options.title, options.theme);
+		component.unload();
+		return blob;
+	}
+
 	const bodyHtml = tmpEl.innerHTML;
 	component.unload();
 
-	const electron = getElectron();
 	const remote = electron.remote ?? electron;
 	const BrowserWindow = remote.BrowserWindow;
 	if (!BrowserWindow) {
