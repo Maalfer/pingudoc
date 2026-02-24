@@ -1,8 +1,8 @@
 /**
- * Note to Word & ODT — Obsidian Plugin
+ * PinguDoc — Obsidian Plugin
  *
- * Export your Obsidian notes to Word (.docx) or OpenDocument (.odt) format,
- * preserving images, headings, lists, tables, and all formatting.
+ * Export your Obsidian notes to Word (.docx), OpenDocument (.odt), and PDF (.pdf)
+ * formats, preserving images, headings, lists, tables, and all formatting.
  */
 
 import { Notice, Plugin, TFile, MarkdownView } from 'obsidian';
@@ -10,19 +10,20 @@ import { DEFAULT_SETTINGS, ExportPluginSettings, ExportSettingTab } from './sett
 import { parseMarkdown } from './parser';
 import { convertToDocx } from './converter';
 import { convertToOdt } from './odt-converter';
+import { exportToPdf } from './pdf-exporter';
 import { saveAs } from 'file-saver';
 
-type ExportFormat = 'docx' | 'odt';
+type ExportFormat = 'docx' | 'odt' | 'pdf';
 
-export default class NoteToDocxPlugin extends Plugin {
+export default class PinguDocPlugin extends Plugin {
 	settings: ExportPluginSettings;
 
 	async onload() {
 		await this.loadSettings();
 
-		// Ribbon icon — quick export button (uses default format)
-		this.addRibbonIcon('file-output', 'Export note (default format)', async () => {
-			await this.exportActiveNote(this.settings.defaultFormat);
+		// Ribbon icon — quick export button
+		this.addRibbonIcon('file-output', 'Export current note', async () => {
+			await this.exportActiveNote('docx');
 		});
 
 		// Command: Export current note to Word (.docx)
@@ -57,6 +58,22 @@ export default class NoteToDocxPlugin extends Plugin {
 			},
 		});
 
+		// Command: Export current note to PDF (.pdf)
+		this.addCommand({
+			id: 'export-to-pdf',
+			name: 'Export current note to PDF (.pdf)',
+			checkCallback: (checking: boolean) => {
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (activeView?.file) {
+					if (!checking) {
+						this.exportNote(activeView.file, 'pdf');
+					}
+					return true;
+				}
+				return false;
+			},
+		});
+
 		// File menu: right-click export options
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
@@ -75,6 +92,14 @@ export default class NoteToDocxPlugin extends Plugin {
 							.setIcon('file-output')
 							.onClick(async () => {
 								await this.exportNote(file, 'odt');
+							});
+					});
+					menu.addItem((item) => {
+						item
+							.setTitle('Export to PDF (.pdf)')
+							.setIcon('file-output')
+							.onClick(async () => {
+								await this.exportNote(file, 'pdf');
 							});
 					});
 				}
@@ -113,7 +138,7 @@ export default class NoteToDocxPlugin extends Plugin {
 	 * Export a specific note to the given format.
 	 */
 	private async exportNote(file: TFile, format: ExportFormat) {
-		const formatLabel = format === 'docx' ? 'Word (.docx)' : 'ODT (.odt)';
+		const formatLabel = format === 'docx' ? 'Word (.docx)' : format === 'odt' ? 'ODT (.odt)' : 'PDF (.pdf)';
 		const loadingNotice = new Notice(`Exporting to ${formatLabel}...`, 0);
 
 		try {
@@ -129,8 +154,8 @@ export default class NoteToDocxPlugin extends Plugin {
 			// 4. Build export options
 			const exportOptions = {
 				title,
-				author: this.settings.defaultAuthor || 'Obsidian User',
-				imageMaxWidth: this.settings.imageMaxWidth,
+				author: 'Mario Álvarez',
+				imageMaxWidth: 600,
 				sourcePath: file.path,
 			};
 
@@ -138,7 +163,16 @@ export default class NoteToDocxPlugin extends Plugin {
 			let blob: Blob;
 			let fileName: string;
 
-			if (format === 'odt') {
+			if (format === 'pdf') {
+				blob = await exportToPdf({
+					app: this.app,
+					markdown: content,
+					sourcePath: file.path,
+					title,
+					theme: this.settings.pdfTheme,
+				});
+				fileName = `${title}.pdf`;
+			} else if (format === 'odt') {
 				blob = await convertToOdt(nodes, this.app, exportOptions);
 				fileName = `${title}.odt`;
 			} else {

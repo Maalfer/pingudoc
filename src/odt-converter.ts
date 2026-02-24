@@ -278,17 +278,18 @@ function buildMimetype(): string {
 
 function buildMeta(title: string, author: string): string {
     const now = new Date().toISOString();
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
-    xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0"
-    xmlns:dc="http://purl.org/dc/elements/1.1/"
-    office:version="1.2">
+                     xmlns:dc="http://purl.org/dc/elements/1.1/"
+                     xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0"
+                     office:version="1.2">
   <office:meta>
     <dc:title>${escapeXml(title)}</dc:title>
     <dc:creator>${escapeXml(author)}</dc:creator>
     <meta:creation-date>${now}</meta:creation-date>
     <dc:date>${now}</dc:date>
-    <meta:generator>Obsidian Note to Word Plugin</meta:generator>
+    <meta:generator>PinguDoc</meta:generator>
   </office:meta>
 </office:document-meta>`;
 }

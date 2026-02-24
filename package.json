@@ -1,7 +1,7 @@
 {
-	"name": "note-to-word-odt",
+	"name": "pingudoc",
 	"version": "1.1.0",
-	"description": "Export your Obsidian notes to Word (.docx) and OpenDocument (.odt) formats",
+	"description": "Export your Obsidian notes to Word (.docx), OpenDocument (.odt), and PDF (.pdf) formats",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
