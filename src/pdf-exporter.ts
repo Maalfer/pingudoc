@@ -1,4 +1,5 @@
 import { App, Component, MarkdownRenderer } from 'obsidian';
+import { resolveImageFile } from './image-handler';
 
 export type PdfTheme = 'light' | 'dark';
 
@@ -31,21 +32,23 @@ function buildHtml(title: string, bodyHtml: string, theme: PdfTheme): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${title}</title>
 <style>
-	@page { margin: 18mm; }
-	html, body { height: 100%; }
+	@page { margin: 0; }
+	html, body { height: 100%; background: ${background}; }
 	body {
 		margin: 0;
-		padding: 0;
+		padding: 18mm;
 		background: ${background};
 		color: ${foreground};
 		font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 		font-size: 13.5px;
 		line-height: 1.6;
+		-webkit-print-color-adjust: exact;
+		print-color-adjust: exact;
 	}
 	.container {
 		max-width: 900px;
 		margin: 0 auto;
-		padding: 24px;
+		padding: 0;
 	}
 	h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 20px 0 10px; }
 	a { color: ${link}; text-decoration: none; }
@@ -86,12 +89,63 @@ function buildHtml(title: string, bodyHtml: string, theme: PdfTheme): string {
 </html>`;
 }
 
+function toBase64(arrayBuffer: ArrayBuffer): string {
+	return Buffer.from(new Uint8Array(arrayBuffer)).toString('base64');
+}
+
+function getImageMime(extension: string): string {
+	switch (extension.toLowerCase()) {
+		case 'png':
+			return 'image/png';
+		case 'jpg':
+		case 'jpeg':
+			return 'image/jpeg';
+		case 'gif':
+			return 'image/gif';
+		case 'bmp':
+			return 'image/bmp';
+		case 'webp':
+			return 'image/webp';
+		case 'svg':
+			return 'image/svg+xml';
+		default:
+			return 'application/octet-stream';
+	}
+}
+
+async function embedImagesAsDataUrls(app: App, container: HTMLElement, sourcePath: string): Promise<void> {
+	const imgs = Array.from(container.querySelectorAll('img'));
+	for (const img of imgs) {
+		const rawSrc = img.getAttribute('src') ?? '';
+		if (!rawSrc) continue;
+		if (rawSrc.startsWith('data:') || rawSrc.startsWith('http://') || rawSrc.startsWith('https://')) continue;
+
+		const srcNoQuery = rawSrc.split('?')[0] ?? rawSrc;
+		let candidate = decodeURIComponent(srcNoQuery);
+
+		// Obsidian desktop often renders vault images as app://local/<...>/<filename>
+		if (candidate.startsWith('app://local/')) {
+			candidate = candidate.replace(/^app:\/\/local\//, '');
+			candidate = candidate.split('/').pop() ?? candidate;
+		}
+
+		const file = resolveImageFile(app, candidate, sourcePath);
+		if (!file) continue;
+
+		const buffer = await app.vault.readBinary(file);
+		const base64 = toBase64(buffer);
+		const mime = getImageMime(file.extension);
+		img.setAttribute('src', `data:${mime};base64,${base64}`);
+	}
+}
+
 export async function exportToPdf(options: ExportToPdfOptions): Promise<Blob> {
 	const component = new Component();
 	component.load();
 
 	const tmpEl = document.createElement('div');
 	await MarkdownRenderer.renderMarkdown(options.markdown, tmpEl, options.sourcePath, component);
+	await embedImagesAsDataUrls(options.app, tmpEl, options.sourcePath);
 	const bodyHtml = tmpEl.innerHTML;
 	component.unload();
 
